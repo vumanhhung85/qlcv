@@ -838,7 +838,7 @@ function viewKanban() {
       <div class="t">${esc(t.title)}</div>
       <div class="m">${t.late || t.status === 'tam_dung' ? `<span class="tag ${cls}">${lab}</span>` : ''}<span class="pri ${'p' + t.priority}">${PRI[t.priority]}</span><span class="grow"></span><span class="${t.late ? 'warn-text' : t.soon ? 'soon-text' : ''}">${t.status === 'hoan_thanh' ? fmtDay(t.completed_at) : fmtDay(t.deadline)}</span></div>
       <div class="bar"><i style="width:${t.overall_pct}%;background:${grpColor[t.grp]}"></i></div>
-      <div class="m"><span class="avs">${t.exes.slice(0, 4).map((m) => avatar(m.user_id)).join('')}</span><span class="grow"></span><b style="color:var(--ink)">${t.overall_pct}%</b></div></div>`; }).join('') || '<div class="small muted" style="padding:6px">Trống</div>'}</div>`).join('');
+      <div class="m"><span class="avs">${t.exes.slice(0, 4).map((m) => avatar(m.user_id)).join('')}</span>${t.exes.length > 1 ? `<span class="small ${t.exes.every((m) => m.pct >= 100) ? 'ok-text' : ''}">${t.exes.filter((m) => m.pct >= 100).length}/${t.exes.length} xong</span>` : ''}<span class="grow"></span><b style="color:var(--ink)">${t.overall_pct}%</b></div></div>`; }).join('') || '<div class="small muted" style="padding:6px">Trống</div>'}</div>`).join('');
   $('#view').innerHTML = h + '</div>'; bindOpen($('#view'));
   $$('.kc').forEach((c) => {
     c.onkeydown = (e) => { if (e.key === 'Enter') openTask(+c.dataset.card); };
@@ -862,6 +862,16 @@ async function dropTo(id, to) {
   else if ((from === 'ldp' || from === 'ldc') && to === 'lam') op = 'reject';
   else if (from === 'giao' && to === 'lam') return toast('Việc tự chuyển "Đang triển khai" khi người thực hiện cập nhật tiến độ lần đầu', true);
   if (!op) return toast(ti > fi ? 'Chỉ chuyển được sang bước kế tiếp của quy trình' : 'Không chuyển ngược được về cột này', true);
+  if (op === 'submit') {
+    const isTP = S.me.role === 'tp' && S.me.dept_id === t.dept_id, isChair = t.chair_id === S.me.id;
+    const notDone = t.exes.filter((m) => m.pct < 100);
+    if (!isTP && !isChair && notDone.length) {
+      return openModal(`<h2>Chưa thể trình duyệt</h2><p>Việc <b>"${esc(t.title)}"</b> có ${t.exes.length} người thực hiện, tiến độ chung vẫn tính trung bình nên chưa đạt 100%:</p>
+        <div class="mini">${notDone.map((m) => `<div class="it" style="cursor:default">${avatar(m.user_id)}<span class="grow"><b>${esc(nameOf(m.user_id))}</b></span><b>${m.pct}%</b></div>`).join('')}</div>
+        <p class="small muted" style="margin-top:10px">Chỉ trình được khi tất cả người thực hiện đạt 100%, hoặc do người chủ trì/Trưởng phòng trình thay.</p>
+        <div class="row" style="margin-top:6px"><span class="grow"></span><button class="btn primary" data-close>Đã hiểu</button></div>`);
+    }
+  }
   const msg = { submit: `Trình Lãnh đạo phòng duyệt việc "${t.title}"?`, approve: `Duyệt việc "${t.title}"?` }[op];
   if (op === 'reject') { note = prompt(`Trả lại việc "${t.title}". Lý do (bắt buộc):`) || ''; if (!note.trim()) return; }
   else if (!confirm(msg)) return;
