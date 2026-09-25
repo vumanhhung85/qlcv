@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2F3541">
-<title>Theo dõi công việc – Phòng Kỹ thuật – An toàn</title>
+<title>Quản lý công việc – Phòng Kỹ thuật – An toàn</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -443,7 +443,7 @@ async function guard(fn, btn) {
   if (btn) btn.disabled = true;
   try { return await fn(); } catch (e) { if (e.code !== 'HET_PHIEN') toast(e.message, true); } finally { if (btn) btn.disabled = false; }
 }
-function logout() { S.tok = ''; S.me = null; localStorage.removeItem('qlcv_tok'); clearInterval(S.timer); document.title = 'Theo dõi công việc'; renderLogin(); }
+function logout() { S.tok = ''; S.me = null; localStorage.removeItem('qlcv_tok'); clearInterval(S.timer); document.title = 'Quản lý công việc'; renderLogin(); }
 
 /* ---------------- dữ liệu ---------------- */
 async function load(quiet) {
@@ -523,7 +523,7 @@ async function pollTick() {
         const first = news[0];
         toast(news.length > 1 ? `${news.length} thông báo mới — bấm để xem` : first.text, false, () => (first.task_id && news.length === 1 ? openTask(first.task_id) : openNotifs()));
         if ('Notification' in window && Notification.permission === 'granted' && localStorage.getItem('qlcv_desk') === '1') {
-          news.slice(0, 3).forEach((n) => { try { const x = new Notification('Theo dõi công việc', { body: n.text, icon: 'icon-192.png', tag: 'qlcv-' + n.id }); x.onclick = () => { window.focus(); n.task_id && openTask(n.task_id); x.close(); }; } catch {} });
+          news.slice(0, 3).forEach((n) => { try { const x = new Notification('Quản lý công việc', { body: n.text, icon: 'icon-192.png', tag: 'qlcv-' + n.id }); x.onclick = () => { window.focus(); n.task_id && openTask(n.task_id); x.close(); }; } catch {} });
         }
       }
     }
@@ -537,7 +537,7 @@ async function pollTick() {
 }
 function updateBadges() {
   const u = $('#unread'); if (u) { u.textContent = S.unread > 99 ? '99+' : S.unread; u.classList.toggle('hidden', !S.unread); }
-  document.title = (S.unread ? `(${S.unread}) ` : '') + 'Theo dõi công việc';
+  document.title = (S.unread ? `(${S.unread}) ` : '') + 'Quản lý công việc';
   const staleMine = S.tasks.filter((t) => t.iExe && t.stale.includes(S.me.id)).length;
   const need = S.tasks.filter((t) => t.needMe).length;
   const mc = $('#cnt-mine'); if (mc) { mc.textContent = staleMine + need; mc.classList.toggle('hidden', !(staleMine + need)); }
@@ -547,7 +547,7 @@ function updateBadges() {
 const brandMark = () => `<img src="${LOGO_FULL}" alt="Công ty Cổ phần Đường sắt Sài Gòn" class="brand-logo">`;
 async function renderLogin() {
   $('#root').innerHTML = `<div class="auth"><form class="box" id="lf" autocomplete="on">
-    <div class="mark">${brandMark()}<div><h1>Theo dõi công việc</h1><div class="muted small">Phòng Kỹ thuật – An toàn</div></div></div>
+    <div class="mark">${brandMark()}<div><h1>Quản lý công việc</h1><div class="muted small">Phòng Kỹ thuật – An toàn</div></div></div>
     <div id="lerr" class="err-msg hidden"></div>
     <label class="field"><span>Tên đăng nhập</span><input class="input" name="u" autocomplete="username" autocapitalize="none" required></label>
     <label class="field"><span>Mật khẩu</span><input class="input" name="p" type="password" autocomplete="current-password" required></label>
@@ -630,7 +630,7 @@ function renderShell() {
   const mobileTabs = admin ? [] : nav.filter((n) => ['dash', 'mine', 'kanban', 'list', 'cal'].includes(n[0])).slice(0, 5);
   $('#root').innerHTML = `<div class="app ${S.collapsed ? 'collapsed' : ''}" id="app">
     <aside class="side" aria-label="Điều hướng chính">
-      <div class="brand"><span class="brand-chip"><img src="${LOGO_MARK}" alt="Đường sắt Sài Gòn"></span><span class="brand-txt">Theo dõi công việc<small>${esc(deptName(S.me.dept_id) || 'Công ty CP Đường sắt Sài Gòn')}</small></span></div>
+      <div class="brand"><span class="brand-chip"><img src="${LOGO_MARK}" alt="Đường sắt Sài Gòn"></span><span class="brand-txt">Quản lý công việc<small>${esc(deptName(S.me.dept_id) || 'Công ty CP Đường sắt Sài Gòn')}</small></span></div>
       <nav>${nav.map(([k, l, i]) => `<button class="nv" data-nav="${k}" title="${l}">${icon(i)}<span class="lbl">${l}</span>${k === 'mine' ? '<span class="cnt hidden" id="cnt-mine"></span>' : ''}</button>`).join('')}</nav>
       <div class="grow"></div>
       <div class="foot">
@@ -1226,7 +1226,7 @@ function openAccount() {
     <div class="panel" style="margin-bottom:14px"><h3 style="margin-bottom:6px">Cài lên màn hình</h3><p class="small" style="margin:0;color:var(--ink-2)">Máy tính (Chrome/Edge): biểu tượng cài đặt ở cuối thanh địa chỉ. Android: ⋮ → <b>Thêm vào màn hình chính</b>. iPhone (Safari): Chia sẻ → <b>Thêm vào MH chính</b>.</p></div>
     <div class="row"><span class="grow"></span><button class="btn primary" data-close>Đóng</button></div>`, (box) => {
     if ($('#desk', box)) $('#desk', box).onchange = async (e) => {
-      if (e.target.checked) { const p = await Notification.requestPermission(); if (p !== 'granted') { e.target.checked = false; return toast('Trình duyệt chưa cho phép hiện thông báo', true); } localStorage.setItem('qlcv_desk', '1'); new Notification('Theo dõi công việc', { body: 'Đã bật thông báo trên thiết bị này', icon: 'icon-192.png' }); }
+      if (e.target.checked) { const p = await Notification.requestPermission(); if (p !== 'granted') { e.target.checked = false; return toast('Trình duyệt chưa cho phép hiện thông báo', true); } localStorage.setItem('qlcv_desk', '1'); new Notification('Quản lý công việc', { body: 'Đã bật thông báo trên thiết bị này', icon: 'icon-192.png' }); }
       else localStorage.setItem('qlcv_desk', '0');
     };
     if ($('#tgl', box)) $('#tgl', box).onclick = (e) => guard(async () => {
