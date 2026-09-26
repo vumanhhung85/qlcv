@@ -402,7 +402,7 @@ const ROLE = { admin: 'Quản trị hệ thống', bgd: 'Ban Giám đốc', tp: 
 const S = {
   tok: localStorage.getItem('qlcv_tok') || '', me: null, users: [], U: {}, depts: [], tasks: [], cfg: {}, unread: 0, latest: 0, files: false, tg: false, skew: 0,
   view: '', f: { q: '', lead: '', exe: '', pri: '', period: 'month', dept: '', from: '', to: '' },
-  lst: { st: 'open', sort: 'deadline', dir: 1 }, cal: null, feed: null, drafts: {}, detail: null, pendingFiles: [], mentions: [], formPendingFiles: [],
+  lst: { st: 'open', sort: 'deadline', dir: 1 }, cal: null, feed: null, cancelled: null, drafts: {}, detail: null, pendingFiles: [], mentions: [], formPendingFiles: [],
   collapsed: localStorage.getItem('qlcv_side') === '1',
 };
 
@@ -924,12 +924,13 @@ async function dropTo(id, to) {
 }
 
 /* ---------------- 4. Danh sách (bảng) ---------------- */
-function viewList() {
+async function viewList() {
   const L = S.lst;
+  const sts = [['open', 'Chưa hoàn thành'], ['run', 'Đang thực hiện'], ['wait', 'Chờ duyệt'], ['late', 'Quá hạn'], ['pause', 'Tạm dừng'], ['done', 'Hoàn thành'], ['all', 'Tất cả'], ['cancelled', 'Đã hủy']];
+  if (L.st === 'cancelled') return viewListCancelled(sts);
   let arr = pool().filter((t) => L.st === 'all' ? true : L.st === 'open' ? t.status !== 'hoan_thanh' : L.st === 'done' ? t.status === 'hoan_thanh' : t.grp === L.st);
   const key = { title: (t) => t.fold, chair: (t) => fold(nameOf(t.chair_id)), deadline: (t) => t.deadline, pri: (t) => -t.priority, status: (t) => ['da_giao', 'dang_trien_khai', 'tam_dung', 'trinh_ld_phong', 'trinh_ld_cty', 'hoan_thanh'].indexOf(t.status) - (t.late ? 10 : 0), pct: (t) => t.overall_pct, upd: (t) => -t.updated_at }[L.sort];
   arr.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : 0) * L.dir; });
-  const sts = [['open', 'Chưa hoàn thành'], ['run', 'Đang thực hiện'], ['wait', 'Chờ duyệt'], ['late', 'Quá hạn'], ['pause', 'Tạm dừng'], ['done', 'Hoàn thành'], ['all', 'Tất cả']];
   const th = (k, l) => `<th data-sort="${k}" aria-sort="${L.sort === k ? (L.dir > 0 ? 'ascending' : 'descending') : 'none'}">${l}${L.sort === k ? (L.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`;
   const staleRows = isLeader() && S.me.role !== 'bgd' ? S.tasks.filter((t) => (t.iChair || t.iSup || S.me.role === 'tp') && t.stale.length) : [];
   let h = `<div class="page-h"><h1>Danh sách công việc</h1><div class="seg" role="group" aria-label="Trạng thái" style="flex-wrap:wrap">${sts.map(([k, l]) => `<button data-lst="${k}" aria-pressed="${L.st === k}">${l}</button>`).join('')}</div></div>`;
@@ -950,6 +951,36 @@ function viewList() {
   $$('[data-lst]').forEach((b) => (b.onclick = () => { L.st = b.dataset.lst; viewList(); }));
   $$('[data-sort]').forEach((b) => (b.onclick = () => { const k = b.dataset.sort; if (L.sort === k) L.dir = -L.dir; else { L.sort = k; L.dir = 1; } viewList(); }));
   $$('[data-nudge]').forEach((b) => (b.onclick = () => guard(async () => { const [tid, uid] = b.dataset.nudge.split(':').map(Number); const r = await api('task.nudge', { id: tid, user_id: uid }); toast(r.skipped ? 'Vừa nhắc người này rồi' : 'Đã gửi nhắc nhở tới ' + nameOf(uid)); b.textContent = 'Đã nhắc'; b.disabled = true; }, b)));
+}
+async function loadCancelled() {
+  if (S.cancelled && Date.now() - S.cancelled.at < 30e3) return S.cancelled.items;
+  try { const j = await api('task.cancelledList', {}, { quiet: true }); S.cancelled = { items: j.items, at: Date.now() }; return j.items; } catch { return []; }
+}
+/* Tab "Đã hủy": việc đã hủy vẫn còn trong D1/R2, cho khôi phục hoặc xóa hẳn. Không hiện trong Kanban/Lịch. */
+async function viewListCancelled(sts) {
+  const L = S.lst;
+  const canManage = ['tp', 'pp'].includes(S.me.role);
+  $('#view').innerHTML = `<div class="page-h"><h1>Danh sách công việc</h1><div class="seg" role="group" aria-label="Trạng thái" style="flex-wrap:wrap">${sts.map(([k, l]) => `<button data-lst="${k}" aria-pressed="${L.st === k}">${l}</button>`).join('')}</div></div>
+    <p class="small muted" style="margin:-6px 0 12px">Việc đã hủy chỉ ẩn khỏi Kanban/Lịch, dữ liệu và tệp đính kèm vẫn được giữ lại.${canManage ? '' : ' Chỉ Trưởng phòng hoặc người chủ trì mới khôi phục/xóa hẳn được.'}</p>
+    <div class="panel"><div class="mini" id="cancelledList"><div class="muted">Đang tải…</div></div></div>`;
+  $$('[data-lst]').forEach((b) => (b.onclick = () => { L.st = b.dataset.lst; viewList(); }));
+  const items = await loadCancelled();
+  const el = $('#cancelledList'); if (!el) return;
+  el.innerHTML = items.length ? items.map((t) => `<div class="it" style="cursor:default">
+      <span class="grow"><div class="t">${esc(t.title)}${t.parent_id ? ' <span class="muted small">(việc con)</span>' : ''}</div>
+      <div class="m">Chủ trì: ${esc(short(t.chair_id))} · Hạn: ${fmtShort(t.deadline)} · Đã hủy ${ago(t.cancelled_at)}</div></span>
+      ${canManage ? `<button class="btn sm" data-restore="${t.id}">Khôi phục</button><button class="btn sm warn" data-purge="${t.id}">Xóa hẳn</button>` : ''}</div>`).join('')
+    : '<div class="empty">Không có công việc nào đã hủy.</div>';
+  $$('[data-restore]', el).forEach((b) => (b.onclick = () => guard(async () => {
+    if (!confirm('Khôi phục công việc này?')) return;
+    await api('task.restore', { id: +b.dataset.restore });
+    S.cancelled = null; toast('Đã khôi phục công việc'); await load(true); viewList();
+  }, b)));
+  $$('[data-purge]', el).forEach((b) => (b.onclick = () => guard(async () => {
+    if (!confirm('Xóa HẲN công việc này? Toàn bộ trao đổi và tệp đính kèm sẽ mất vĩnh viễn, không thể khôi phục.')) return;
+    await api('task.purge', { id: +b.dataset.purge });
+    S.cancelled = null; toast('Đã xóa hẳn'); viewList();
+  }, b)));
 }
 
 /* ---------------- 5. Lịch trình ---------------- */
@@ -993,7 +1024,7 @@ function actText(a) {
   const m = a.meta || {};
   switch (a.kind) {
     case 'create': return 'giao công việc';
-    case 'comment': return (m.files ? 'gửi tệp đính kèm' : 'bình luận') + (m.mentions && m.mentions.length ? `, nhắc ${m.mentions.map((u) => esc(short(u))).join(', ')}` : '');
+    case 'comment': return a.deleted_at ? 'đã thu hồi một tin nhắn' : (m.files ? 'gửi tệp đính kèm' : 'bình luận') + (m.mentions && m.mentions.length ? `, nhắc ${m.mentions.map((u) => esc(short(u))).join(', ')}` : '');
     case 'progress': return `cập nhật tiến độ ${m.from}% → <b>${m.to}%</b>`;
     case 'overall': return m.auto ? 'chuyển % chung về trung bình' : `chốt % chung <b>${m.to}%</b>`;
     case 'deadline': return `đổi thời hạn ${fmtShort(m.from)} → <b>${fmtShort(m.to)}</b>`;
@@ -1081,7 +1112,7 @@ function renderDetail() {
       <dt>Trình LĐ công ty</dt><dd>${t.needs_company ? 'Có' : 'Không cần'}</dd></dl>
       ${t.description ? `<div style="margin-top:12px;white-space:pre-wrap;border-top:1px solid var(--line-2);padding-top:12px">${esc(t.description)}</div>` : ''}</div>
     ${d.children.length ? `<div class="card"><h3>Việc con (${d.children.length})</h3><div class="mini">${d.children.map((c) => `<button class="it" data-open="${c.id}"><span class="grow"><div class="t">${esc(c.title)}</div><div class="m"><span class="tag ${ST[c.status][1]}">${ST[c.status][0]}</span> Hạn ${fmtShort(c.deadline)} · ${esc(short(c.chair_id))} chủ trì</div></span><b>${c.overall_pct}%</b></button>`).join('')}</div></div>` : ''}
-    <div class="card"><h3>Trao đổi và lịch sử</h3><div class="tl">${d.activities.map((a) => evHtml(a, attsByAct[a.id])).join('') || '<div class="muted small">Chưa có trao đổi.</div>'}</div></div>
+    <div class="card"><h3>Trao đổi và lịch sử</h3><div class="tl">${d.activities.map((a) => evHtml(a, attsByAct[a.id], t)).join('') || '<div class="muted small">Chưa có trao đổi.</div>'}</div></div>
   </div>
   ${pm.comment ? `<div class="composer">
     ${participants.length ? `<div class="chips" aria-label="Nhắc tên"><span class="small muted" style="align-self:center">Nhắc tên:</span>${participants.map((u) => `<button type="button" class="chip" data-men="${u}" aria-pressed="${S.mentions.includes(u)}">${esc(short(u))}</button>`).join('')}</div>` : ''}
@@ -1107,11 +1138,16 @@ function renderDetail() {
   }
   $$('[data-op]', sh).forEach((b) => (b.onclick = () => guard(() => doStatus(b.dataset.op), b)));
   $$('[data-nudge]', sh).forEach((b) => (b.onclick = () => guard(async () => { const r = await api('task.nudge', { id: t.id, user_id: +b.dataset.nudge }); toast(r.skipped ? 'Vừa nhắc người này rồi' : 'Đã gửi nhắc nhở'); await reloadDetail(); }, b)));
+  $$('[data-recall]', sh).forEach((b) => (b.onclick = () => guard(async () => {
+    if (!confirm('Thu hồi nội dung này? Tin nhắn và tệp đính kèm (nếu có) sẽ bị xóa vĩnh viễn, mọi người sẽ thấy "Tin nhắn đã được thu hồi".')) return;
+    await api('task.commentDelete', { id: t.id, activity_id: +b.dataset.recall });
+    toast('Đã thu hồi'); S.feed = null; await reloadDetail();
+  }, b)));
   if ($('#dedit')) $('#dedit').onclick = () => openForm(d);
   if ($('#dsub')) $('#dsub').onclick = () => openForm(null, t);
   if ($('#dcancel')) $('#dcancel').onclick = (e) => guard(async () => {
     if (!confirm(`Hủy công việc "${t.title}"${d.children.length ? ' và các việc con' : ''}? Việc đã hủy sẽ bị ẩn hoàn toàn.`)) return;
-    await api('task.cancel', { id: t.id }); toast('Đã hủy công việc'); S.dirty = true; S.closeDetail();
+    await api('task.cancel', { id: t.id }); S.cancelled = null; toast('Đã hủy công việc'); S.dirty = true; S.closeDetail();
   }, e.target);
   if ($('#dover')) $('#dover').onclick = () => openModal(`<h2>Chốt tiến độ chung</h2><p class="small muted" style="margin-top:-6px">Mặc định lấy trung bình % của người thực hiện. Người chủ trì có thể chốt một con số khác.</p>
     <label class="field"><span>Tiến độ chung (%)</span><input class="input" id="ovv" type="number" min="0" max="100" value="${t.overall_pct}"></label>
@@ -1140,15 +1176,23 @@ async function doStatus(op) {
   const r = await api('task.status', { id: t.id, op, note });
   toast(ST[r.status] ? 'Đã chuyển: ' + ST[r.status][0] : 'Đã cập nhật'); await reloadDetail();
 }
-function evHtml(a, files) {
+const RECALL_WINDOW = 24 * 3600e3;
+function canRecall(a, t) {
+  if (a.kind !== 'comment' || a.deleted_at || a.user_id !== S.me.id) return false;
+  if (now() - a.created_at > RECALL_WINDOW) return false;
+  if (t && t.status === 'hoan_thanh' && t.completed_at && now() - t.completed_at > RECALL_WINDOW) return false;
+  return true;
+}
+function evHtml(a, files, t) {
   const who = esc(nameOf(a.user_id)), m = a.meta || {};
   const tm = `<span class="muted"> · ${fmtShort(a.created_at)}</span>`;
+  if (a.kind === 'comment' && a.deleted_at) return `<div class="ev2">${avatar(a.user_id)}<div><div class="who"><b>${who}</b>${tm}</div><div class="body muted" style="font-style:italic">Tin nhắn đã được thu hồi</div></div></div>`;
   const imgs = (files || []).filter((f) => /^image\//.test(f.mime));
   const docs = (files || []).filter((f) => !/^image\//.test(f.mime));
   if (imgs.length) imgSets[a.id] = imgs;
   const fl = files && files.length ? `<div class="atts">${imgs.map((f, idx) => `<button type="button" class="attimg" data-actid="${a.id}" data-imgidx="${idx}" aria-label="Xem ảnh ${esc(f.name)}"><img src="${esc(f.url)}" alt="${esc(f.name)}" loading="lazy"></button>`).join('')}${docs.map((f) => `<a href="${esc(f.url)}" target="_blank" rel="noopener">${icon('clip')} ${esc(f.name)} <span class="muted">${(f.size / 1024 / 1024).toFixed(1)} MB</span></a>`).join('')}</div>` : '';
   const men = m.mentions && m.mentions.length && a.kind === 'comment' ? `<div class="small" style="color:var(--run)">Nhắc: ${m.mentions.map((u) => esc(nameOf(u))).join(', ')}</div>` : '';
-  if (a.kind === 'comment') return `<div class="ev2">${avatar(a.user_id)}<div><div class="who"><b>${who}</b>${tm}</div>${men}${a.body ? `<div class="body">${esc(a.body)}</div>` : ''}${fl}</div></div>`;
+  if (a.kind === 'comment') return `<div class="ev2">${avatar(a.user_id)}<div><div class="who"><b>${who}</b>${tm}${canRecall(a, t) ? ` <button type="button" class="btn ghost sm" data-recall="${a.id}">Thu hồi</button>` : ''}</div>${men}${a.body ? `<div class="body">${esc(a.body)}</div>` : ''}${fl}</div></div>`;
   return `<div class="ev2 sys">${avatar(a.user_id)}<div><div class="body"><b>${who}</b> ${actText(a)}${tm}</div>${a.body ? `<div class="body" style="color:var(--ink)">“${esc(a.body)}”</div>` : ''}${fl}</div></div>`;
 }
 /* ---- giới hạn dung lượng đính kèm (cấu hình admin, trần cứng FILE_MAX_CEIL/FILE_TOTAL_CEIL) ---- */
